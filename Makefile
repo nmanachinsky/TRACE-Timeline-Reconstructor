@@ -1,7 +1,15 @@
 UV := uv
 RUN := $(UV) run
 
-.PHONY: install install-m2 test test-fast prepare features-core features-full train-m1 train-m2 predict-m1 predict-m2 eval-m1 eval-m2 app clean
+# Основной поток продукта — `make app` (Streamlit Wizard).
+# Таргеты prepare / features / train / predict / eval оставлены для CLI-режима
+# и регрессионных прогонов на эталонной выборке `data/source/`.
+
+.PHONY: install install-m2 test test-fast prepare features-core features-full train-m1 train-m2 predict-m1 predict-m2 eval-m1 eval-m2 app clean help
+
+help:
+	@echo "Основная команда: make app — запуск Streamlit-приложения"
+	@echo "См. README.md для подробностей и команд без make"
 
 install:
 	$(UV) sync

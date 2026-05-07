@@ -53,12 +53,25 @@ packages = ["src"]
 package = true
 
 [tool.uv.sources]
-torch = { index = "pytorch-cu124" }
-torchvision = { index = "pytorch-cu124" }
+# На Windows тянем CUDA-сборку torch (для локальной GPU GTX 1650), на Linux —
+# CPU-сборку (для CI). Маркеры разруливают платформу.
+torch = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu",   marker = "sys_platform == 'linux'" },
+]
+torchvision = [
+    { index = "pytorch-cu124", marker = "sys_platform == 'win32'" },
+    { index = "pytorch-cpu",   marker = "sys_platform == 'linux'" },
+]
 
 [[tool.uv.index]]
 name = "pytorch-cu124"
 url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.pytest.ini_options]
@@ -82,9 +95,16 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src"]
-# extractor.py — CLI-оркестратор, грузит ResNet/insightface/EasyOCR; тестируется
-# end-to-end прогоном пайплайна, а не unit-тестами.
-omit = ["src/app/*", "src/**/__main__.py", "src/features/extractor.py"]
+# extractor.py / feature_pipeline.py / wizard.py — оркестраторы, грузят
+# ResNet/insightface/EasyOCR и оборачивают другие протестированные модули;
+# покрываются end-to-end прогоном Wizard-приложения, а не unit-тестами.
+omit = [
+    "src/app/*",
+    "src/**/__main__.py",
+    "src/features/extractor.py",
+    "src/pipeline/feature_pipeline.py",
+    "src/pipeline/wizard.py",
+]
 
 [tool.coverage.report]
 exclude_lines = [

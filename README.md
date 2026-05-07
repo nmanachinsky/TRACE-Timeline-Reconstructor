@@ -1,73 +1,197 @@
-# TRACE — Timeline Reconstructor
+# TRACE — Personal Archive Restorer
 
-Восстановление хронологии фотографий (год + сезон) без EXIF на основе визуального анализа: ResNet-эмбеддинги, цветовые гистограммы, освещение, лица и OCR. Курсовой проект по ИИ.
+> Локальное восстановление хронологии личных фотоархивов.
+
+TRACE учится «на лету» на части вашего архива, где сохранились метаданные
+(EXIF / Google Takeout JSON / дата в имени файла), формирует **персональный
+визуальный профиль** — ваша одежда, интерьеры, питомцы, особенности камеры —
+и применяет его, чтобы расставить год и сезон у фотографий, потерявших
+метаданные.
+
+Никаких облачных API. Никаких готовых весов из сети. Профиль формируется
+заново на каждую вашу подборку и валидируется на её 30%-выборке прежде, чем
+прикасаться к фото-свалке.
+
+## Почему
+
+Любой большой фотоархив со временем теряет связь с датами:
+
+- HEIC-файлы с iPhone после конвертации теряют EXIF;
+- Telegram, WhatsApp и Discord перекодируют фото, выкидывая метаданные;
+- импорт-экспорт между сервисами оставляет файлы вида `IMG_8723.JPG` без
+  даты ни в EXIF, ни в имени;
+- скриншоты, сканы старых снимков, чужие сборники — таймлайн рассыпается.
+
+TRACE решает это локально, на вашем железе, без отправки фотографий куда-либо.
+
+## Как это работает
+
+Конвейер из четырёх шагов в Streamlit-мастере:
+
+1. **Выбор данных.** Указываете две папки: эталонную с метаданными
+   (`Reference Dir`) и целевую без них (`Target Dir`). Приложение сканирует обе
+   и показывает, сколько фото поддаётся обучению и сколько ждёт сортировки.
+2. **Обучение профиля.** Извлекается ResNet-50 эмбеддинг + цветовая
+   гистограмма + статистика освещения для каждого эталонного фото; данные
+   делятся на train/validation 70/30 со стратификацией по «год-сезон».
+   Тренируется ансамбль kNN + RandomForest + LogisticRegression. Результат
+   проверяется на той же эталонной выборке — вы видите Accuracy, MAE,
+   confusion matrix _до_ применения к свалке.
+3. **Восстановление хронологии.** Те же признаки извлекаются из
+   `Target Dir` и прогоняются через обученный классификатор. Опционально
+   включается `cluster consensus` (HDBSCAN на эмбеддингах): фото внутри
+   одного визуального кластера получают «голос» соседей с известными метками.
+4. **Раскладка.** Файлы копируются (или переносятся) в подпапки
+   `Output Dir/YYYY-Season/` с учётом выбранного порога уверенности.
+
+Опциональный режим **M2** (`uv sync --extra m2`) добавляет два сильных
+сигнала: face-эмбеддинги (`insightface`) и OCR-распознавание годов на
+снимках с текстом (`EasyOCR`). Точнее, но медленнее.
 
 ## Быстрый старт
 
+### Требования
+
+- Python 3.11 или 3.12
+- Windows / Linux / macOS
+- 4–8 GB RAM на типичный архив 4–5 тыс. фото
+- Опционально: NVIDIA GPU с CUDA для ускорения ResNet и face-эмбеддингов
+
+### Установка
+
+С [`uv`](https://docs.astral.sh/uv/) (рекомендуется — резолвит
+платформозависимый torch автоматически):
+
 ```bash
-make install                 # зависимости
-make prepare                 # стриппинг EXIF + ground truth + train/test split
-make features-core           # ResNet + цвет + свет (M1)
-make train-m1                # обучить ансамбль kNN+RF+LR
-make predict-m1              # предсказание + cluster consensus
-make eval-m1                 # accuracy, macro-F1, MAE, confusion matrix
-make app                     # Streamlit-демо
+git clone https://github.com/<user>/TRACE-Timeline-Reconstructor.git
+cd TRACE-Timeline-Reconstructor
+uv sync                       # ядро (M1)
+uv sync --extra m2            # опционально: faces + OCR
 ```
 
-## Архитектура
+С `pip` и venv:
 
+```bash
+git clone https://github.com/<user>/TRACE-Timeline-Reconstructor.git
+cd TRACE-Timeline-Reconstructor
+python -m venv .venv
+# Windows:
+.venv\Scripts\activate
+# Linux/macOS:
+source .venv/bin/activate
+pip install -e .              # ядро (M1)
+pip install -e ".[m2]"        # опционально: faces + OCR
 ```
-data/source/Фото YYYY г/  →  prepare/  →  features/      →  train  →  predict  →  evaluate  →  app
-                              │           │                 │         │           │
-                              ↓           ↓                 ↓         ↓           ↓
-                         ground_truth   resnet.npz       models/   predictions  reports/
-                         /stripped      color.npz                              metrics.json
-                         /splits        light.npz
-                                        faces.npz (M2)
-                                        ocr.npz (M2)
+
+> На Windows ядро ставит torch с CUDA 12.4. На Linux — CPU-вариант. Это
+> прописано в `pyproject.toml`, ничего настраивать не нужно.
+
+### Запуск приложения
+
+С Make:
+
+```bash
+make app
 ```
+
+Без Make (прямой запуск Streamlit):
+
+```bash
+uv run streamlit run src/app/streamlit_app.py
+# либо в активированном venv:
+streamlit run src/app/streamlit_app.py
+```
+
+Откроется `http://localhost:8501` с мастером из четырёх шагов.
+
+### Использование
+
+1. На шаге 1 нажмите **«Обзор…»** напротив каждого поля, выберите
+   `Reference Dir` и `Target Dir` в системном проводнике (или вставьте путь
+   вручную). Нажмите **«Проанализировать файлы»** — увидите сводку по обеим
+   папкам.
+2. На шаге 2 нажмите **«Извлечь признаки и Обучить»**. После прогресс-бара
+   появятся метрики на валидационной части эталона — это честная оценка
+   того, как профиль сработает на ваших фото.
+3. На шаге 3 нажмите **«Восстановить хронологию»** — получите таблицу
+   предсказаний и гистограмму распределения целевых фото по (год, сезон).
+   Отдельной кнопкой выгружается CSV.
+4. На шаге 4 укажите `Output Dir`, поставьте порог уверенности и операцию
+   (копировать/переместить), нажмите **«Разложить по папкам»**. Файлы
+   разойдутся в подпапки `YYYY-Season/`. Лог ошибок виден тут же.
+
+В сайдбаре можно переключить M1↔M2, включить/выключить cluster consensus,
+поменять долю валидации и параметры HDBSCAN.
 
 ## Стек
 
-- **CV/ML**: pretrained ResNet-50 (torchvision), scikit-learn (kNN+RF+LR ансамбль), HDBSCAN, OpenCV, Pillow, pillow-heif
-- **M2 признаки**: insightface (RetinaFace + ArcFace, ONNX), EasyOCR (ru+en)
+- **CV/ML**: pretrained ResNet-50 (torchvision), scikit-learn (kNN + RF + LR
+  ансамбль), HDBSCAN, OpenCV, Pillow, pillow-heif
+- **M2 (опционально)**: insightface (RetinaFace + ArcFace, ONNX), EasyOCR
+  (ru + en)
 - **UI**: Streamlit + Plotly
-- **Тесты**: pytest, pytest-cov (≥ 80% покрытия)
+- **Тесты**: pytest, pytest-cov (≥ 80% покрытия ядра)
 
 ## Структура
 
 ```
 src/
-├── config.py            # Пути, гиперпараметры, seed
-├── prepare/             # Извлечение GT, стриппинг EXIF, train/test split
-├── features/            # Извлечение признаков (ResNet, цвет, свет, лица, OCR)
-├── models/              # Ансамбль классификаторов + HDBSCAN consensus
-├── pipeline/            # train / predict / evaluate
-└── app/                 # Streamlit-демо
-tests/                   # pytest + ≥ 80% покрытия
-data/                    # Вход и артефакты (вне git, см. .gitignore)
-models/                  # Артефакты обучения
-reports/                 # Метрики и графики
+├── config.py                # Гиперпараметры, поддерживаемые расширения, seed
+├── prepare/                 # Извлечение GT, EXIF-стриппинг, train/test split
+├── features/                # ResNet-50, цвет, освещение, лица, OCR
+├── models/                  # Soft-voting ансамбль + HDBSCAN consensus
+├── pipeline/
+│   ├── feature_pipeline.py  # Извлечение признаков для произвольных списков
+│   └── wizard.py            # Высокоуровневый API для UI (4 шага)
+└── app/                     # Streamlit-приложение
+    ├── streamlit_app.py     # Точка входа, layout, сайдбар
+    ├── wizard_steps.py      # Компоненты шагов 1–4
+    ├── file_picker.py       # Tk-обёртка системного диалога выбора папки
+    └── theme.py             # Палитра, CSS, Plotly-шаблон
+tests/                       # pytest, ≥ 80% покрытия
+models/wizard/<hash>/        # Кэш признаков и обученный classifier для сессии
 ```
 
-## Метрики
+## Команды разработки
 
-| Метрика | Цель M1 | M1 | Цель M2 | M2 | Δ |
-|---------|---------|----|---------|----|---|
-| accuracy @ year | ≥ 55% | 70.2% | ≥ 65% | **72.6%** | +2.4 пп |
-| accuracy @ (year, season) | ≥ 35% | 56.2% | ≥ 50% | **58.3%** | +2.1 пп |
-| macro-F1 @ (year, season) | ≥ 0.25 | 0.458 | ≥ 0.40 | **0.473** | +0.015 |
-| MAE, месяцев | ≤ 9 | 8.06 | ≤ 6 | **7.74** | −0.32 |
+С Make:
 
-Прогон на 4486 фото (test = 1346, 28 классов). M2-признаки (insightface
-face-эмбеддинги: 1196 лиц найдено, EasyOCR: 298 фото с распознанным годом)
-улучшают все четыре метрики относительно M1. Цели M2 по accuracy и macro-F1
-перевыполнены; MAE приближается к цели, но всё ещё выше из-за тяжёлого хвоста
-ошибок на годах, где визуальные сигналы слабые.
+| Команда            | Что делает                                   |
+| ------------------ | -------------------------------------------- |
+| `make install`     | Установить ядро через `uv sync`              |
+| `make install-m2`  | Установить ядро + faces + OCR                |
+| `make test`        | Прогнать все тесты                           |
+| `make test-fast`   | Тесты без `slow` и `integration` маркеров    |
+| `make app`         | Запустить Streamlit-приложение               |
+| `make clean`       | Удалить кэши, артефакты обучения, отчёты     |
 
-Cluster consensus отключён по умолчанию (HDBSCAN на 4486 фото даёт всего ~95
-кластеров → большинство test-точек попадают в noise → consensus слегка ухудшает
-метрики на 1-2 пп). Включается через `--consensus` в `predict`.
+Без Make:
 
-Подробности — `reports/metrics_m{1,2}.json`, confusion matrix —
-`reports/metrics_m{1,2}_confusion.png`.
+```bash
+uv sync                                   # установка ядра
+uv sync --extra m2                        # установка с faces+OCR
+uv run pytest tests/ -v                   # все тесты
+uv run pytest tests/ -v -m "not slow"     # быстрые тесты
+uv run streamlit run src/app/streamlit_app.py  # запуск приложения
+```
+
+## Конфиденциальность
+
+TRACE никуда не отправляет ваши фотографии. Все вычисления проходят на
+локальной машине. Сетевая активность ограничивается:
+
+- разовой загрузкой весов pretrained ResNet-50 из официального индекса
+  torchvision при первом запуске (≈ 100 МБ);
+- разовой загрузкой моделей `insightface` и `easyocr` при первом запуске
+  M2-режима;
+- обновлением Python-зависимостей через `uv` или `pip`.
+
+Никаких telemetry, никакой отправки изображений, никаких внешних API.
+
+## Лицензия
+
+Смотрите [LICENSE](LICENSE).
+
+## Вклад
+
+Смотрите [CONTRIBUTING.md](CONTRIBUTING.md).

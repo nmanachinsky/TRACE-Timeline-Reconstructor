@@ -28,13 +28,15 @@ env/
 .DS_Store
 Thumbs.db
 
-# Project artifacts (генерируются скриптами, не кладём в git)
-data/
-models/
-reports/
+# Project artifacts (генерируются скриптами, не кладём в git).
+# Ведущий слэш — иначе шаблон ловит и Python-пакет src/models/.
+/data/
+/models/
+/reports/
 
-# Исходные фото — слишком тяжёлые для git, лежат локально
-data/Фото*/
-
-# Streamlit
+# Streamlit secrets — никогда в git
 .streamlit/secrets.toml
+
+# Локальный дамп кода (генерируется dump_code.py — оба файла локальные)
+dump_code.py
+CODE_DUMP.md

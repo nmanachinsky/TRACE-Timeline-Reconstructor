@@ -1,0 +1,19 @@
+# Тема для TRACE Streamlit-приложения.
+# Контраст: тёмно-синий текст (#0F172A, slate-900) на светло-сером фоне (#F8FAFC, slate-50)
+# и белых карточках. Caption — slate-600 (#475569), не сливается со светлым фоном.
+# Primary — насыщенный синий, vivid но не кричащий.
+
+[theme]
+primaryColor = "#2563EB"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#0F172A"
+font = "sans serif"
+
+[server]
+headless = true
+runOnSave = false
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false

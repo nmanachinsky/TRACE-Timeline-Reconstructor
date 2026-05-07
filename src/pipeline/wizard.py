@@ -693,3 +693,106 @@ def write_predictions_dump(predictions: tuple[TargetPrediction, ...], path: Path
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def load_session_from_data(data_dir: Path) -> tuple[TrainingResult | None, InferenceResult]:
+    """Восстанавливает состояние (метрики и предсказания) из готовой папки data/ или output."""
+    if not data_dir.exists():
+        raise WizardError(f"Папка не найдена: {data_dir}")
+
+    pred_path = data_dir / "predictions_m2.json"
+    if not pred_path.exists():
+        pred_path = data_dir / "predictions_m1.json"
+    if not pred_path.exists():
+        pred_path = data_dir / "_trace_predictions.json"
+    if not pred_path.exists():
+        raise WizardError(f"В {data_dir} не найдены JSON-файлы с предсказаниями.")
+
+    try:
+        payload = json.loads(pred_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        raise WizardError(f"Файл {pred_path.name} повреждён или не является валидным JSON.")
+
+    is_cli_format = isinstance(payload, dict)
+    items = payload.values() if is_cli_format else payload
+
+    predictions: list[TargetPrediction] = []
+    true_labels: list[str] =[]
+    pred_labels: list[str] = []
+    mae_deltas: list[float] =[]
+
+    for i, item in enumerate(items):
+        path_str = item.get("stripped_path") or item.get("path", "")
+        sample_id = item.get("sample_id", f"loaded_{i}")
+        label = item.get("predicted_label", item.get("label", ""))
+        try:
+            year, season = label.split("-", 1)
+            year = int(year)
+        except ValueError:
+            year, season = 0, ""
+
+        top3_raw = item.get("top3",[])
+        top3 = tuple((str(x["label"]), float(x["proba"])) for x in top3_raw)
+        confidence = item.get("confidence")
+        if confidence is None:
+            confidence = top3[0][1] if top3 else 0.0
+
+        predictions.append(TargetPrediction(
+            path=Path(path_str),
+            sample_id=sample_id,
+            label=label,
+            year=year,
+            season=season,
+            confidence=float(confidence),
+            top3=top3,
+        ))
+
+        if is_cli_format and "true_label" in item:
+            true_labels.append(item["true_label"])
+            pred_labels.append(label)
+            
+            # Считаем MAE
+            if "true_timestamp" in item and year > 0:
+                try:
+                    true_dt = datetime.fromisoformat(item["true_timestamp"])
+                    pred_dt = datetime(year, _SEASON_CENTER_MONTH.get(season, 6), 15)
+                    mae_deltas.append(abs((pred_dt - true_dt).days) / 30.4375)
+                except ValueError:
+                    pass
+
+    inference_res = InferenceResult(
+        predictions=tuple(predictions),
+        cluster_count=0,
+        consensus_applied=False,
+    )
+
+    training_res = None
+    if true_labels and pred_labels:
+        classes = sorted(set(true_labels) | set(pred_labels))
+        cm = confusion_matrix(true_labels, pred_labels, labels=classes)
+        true_years = [int(l.split("-")[0]) for l in true_labels if "-" in l]
+        pred_years =[int(l.split("-")[0]) for l in pred_labels if "-" in l]
+
+        metrics = ValidationMetrics(
+            n_train=0,
+            n_val=len(true_labels),
+            accuracy_year=float(accuracy_score(true_years, pred_years)) if true_years else 0.0,
+            accuracy_year_season=float(accuracy_score(true_labels, pred_labels)),
+            macro_f1_year_season=float(f1_score(true_labels, pred_labels, average="macro", zero_division=0)),
+            mae_months=float(np.mean(mae_deltas)) if mae_deltas else 0.0,
+            confusion_matrix=cm,
+            confusion_labels=tuple(classes),
+            classification_report=classification_report(true_labels, pred_labels, zero_division=0, output_dict=True),
+        )
+
+        training_res = TrainingResult(
+            classifier=None,  # type: ignore
+            classifier_path=Path("."),
+            feature_bundle=None,  # type: ignore
+            train_ids=(),
+            val_ids=(),
+            train_labels_by_id={},
+            val_metrics=metrics,
+        )
+
+    return training_res, inference_res

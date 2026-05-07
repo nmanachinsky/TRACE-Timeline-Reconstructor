@@ -16,6 +16,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
+from datetime import datetime
 
 from src.app.file_picker import is_picker_available, pick_directory
 from src.app.theme import (
@@ -39,6 +40,8 @@ from src.pipeline.wizard import (
     infer_target,
     train_reference_profile,
     write_predictions_dump,
+    load_session_from_data,
+    ReferenceFile,
 )
 
 STATE_KEY_REFERENCE_PATH = "wizard_reference_path"
@@ -85,6 +88,60 @@ def render_step_data_input() -> None:
 
     _render_analysis_summary()
 
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.expander("🔄 Загрузить готовые результаты (из папки DATA / Output Dir)", expanded=False):
+        _render_load_existing_session()
+
+def _render_load_existing_session() -> None:
+    st.caption("Если у вас уже есть папка с вычисленными файлами `predictions_*.json` или `_trace_predictions.json`.")
+    state_key = "wizard_load_data_path"
+
+    # Callback для кнопки: выполняется ДО перерисовки интерфейса
+    def _pick_cb():
+        chosen = pick_directory("Выберите папку с результатами")
+        if chosen is not None:
+            st.session_state[state_key] = str(chosen)
+
+    col_input, col_button = st.columns([6, 1])
+    with col_input:
+        st.text_input(
+            "Путь к папке с результатами",
+            key=state_key,
+            placeholder="например, ./data",
+            label_visibility="collapsed",
+        )
+    with col_button:
+        picker_disabled = not is_picker_available()
+        st.button(
+            "📂 Обзор…", 
+            key="load_data_picker", 
+            disabled=picker_disabled,
+            on_click=_pick_cb  # Привязываем callback
+        )
+
+    data_path = _resolved_path(st.session_state.get(state_key))
+    if data_path and st.button("📥 Загрузить в интерфейс"):
+        try:
+            training_res, inference_res = load_session_from_data(data_path)
+            
+            fake_ref = ReferenceFile(
+                path=Path("."), sample_id="mock", timestamp=datetime.now(), 
+                year=2020, season="winter", class_label="2020-winter", source="mock"
+            )
+            st.session_state[STATE_KEY_REFERENCE_ANALYSIS] = ReferenceAnalysis(
+                directory=data_path, total_image_files=1, files=(fake_ref,), skipped_paths=()
+            )
+            st.session_state[STATE_KEY_TARGET_ANALYSIS] = TargetAnalysis(
+                directory=data_path, files=tuple(p.path for p in inference_res.predictions)
+            )
+            
+            if training_res:
+                st.session_state[STATE_KEY_TRAINING] = training_res
+            st.session_state[STATE_KEY_INFERENCE] = inference_res
+            
+            st.success(f"Успешно загружено {len(inference_res.predictions)} предсказаний! Прокрутите вниз к шагам 2-4.")
+        except WizardError as exc:
+            st.error(str(exc))
 
 def _run_analysis() -> None:
     reference_path = _resolved_path(st.session_state.get(STATE_KEY_REFERENCE_PATH))
@@ -217,15 +274,18 @@ def _render_training_summary() -> None:
 
     metrics = training.val_metrics
     st.markdown("#### Метрики на валидации (30% эталонной выборки)")
+    
+    # 5 метрик, короткие названия чтобы не обрезались в UI
     cols = st.columns(5)
-    cols[0].metric("Train-фото", _humanize(metrics.n_train))
+    cols[0].metric("Train-фото", _humanize(metrics.n_train) if metrics.n_train > 0 else "—")
     cols[1].metric("Val-фото", _humanize(metrics.n_val))
-    cols[2].metric("Точность по году", f"{metrics.accuracy_year:.1%}" if metrics.n_val else "—")
-    cols[3].metric(
-        "Точность (год+сезон)",
-        f"{metrics.accuracy_year_season:.1%}" if metrics.n_val else "—",
-    )
-    cols[4].metric("MAE, мес", f"{metrics.mae_months:.2f}" if metrics.n_val else "—")
+    cols[2].metric("Acc (год)", f"{metrics.accuracy_year:.1%}" if metrics.n_val else "—")
+    cols[3].metric("Acc (сезон)", f"{metrics.accuracy_year_season:.1%}" if metrics.n_val else "—")
+    cols[4].metric("Macro F1", f"{metrics.macro_f1_year_season:.3f}" if metrics.n_val else "—")
+    
+    # MAE выводим текстом ниже, чтобы не ломать сетку из 5 колонок
+    if metrics.n_val:
+        st.caption(f"**Средняя абсолютная ошибка (MAE):** {metrics.mae_months:.2f} мес.")
 
     if metrics.n_val < 2 or metrics.confusion_matrix.size == 0:
         st.warning(

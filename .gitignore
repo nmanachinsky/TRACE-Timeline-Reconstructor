@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+*.egg
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project artifacts (генерируются скриптами, не кладём в git)
+data/originals/
+data/stripped/
+data/features/
+data/splits/
+data/ground_truth.json
+data/predictions*.json
+models/
+reports/
+
+# Исходные фото — слишком тяжёлые для git, лежат локально
+data/Фото*/
+
+# Streamlit
+.streamlit/secrets.toml

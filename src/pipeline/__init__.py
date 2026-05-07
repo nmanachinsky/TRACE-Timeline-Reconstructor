@@ -1,0 +1,1 @@
+"""Пайплайн: train, predict, evaluate."""

@@ -17,6 +17,7 @@ htmlcov/
 venv/
 .venv/
 env/
+.claude/
 
 # IDE
 .idea/
@@ -28,12 +29,7 @@ env/
 Thumbs.db
 
 # Project artifacts (генерируются скриптами, не кладём в git)
-data/originals/
-data/stripped/
-data/features/
-data/splits/
-data/ground_truth.json
-data/predictions*.json
+data/
 models/
 reports/
 

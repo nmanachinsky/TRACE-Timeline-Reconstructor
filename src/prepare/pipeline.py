@@ -3,7 +3,7 @@
 Запуск: `uv run python -m src.prepare.pipeline`.
 
 Шаги:
-1. Сканирует data/Фото YYYY г/, извлекает ground truth для каждого фото.
+1. Сканирует data/source/Фото YYYY г/, извлекает ground truth для каждого фото.
 2. Стриппит EXIF, складывает копии без метаданных в data/stripped/.
 3. Создаёт data/originals/ как зеркало оригиналов (для сравнения и UI).
 4. Сохраняет data/ground_truth.json — маппинг stripped_id → дата + метаданные источника.
@@ -29,10 +29,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 from src.config import (
-    DATA_DIR,
     GROUND_TRUTH_PATH,
     GT_CONFLICTS_PATH,
     ORIGINALS_DIR,
+    SOURCE_DIR,
     SPLITS_DIR,
     STRIPPED_DIR,
     SUPPORTED_IMAGE_EXTENSIONS,
@@ -44,12 +44,12 @@ from src.prepare.strip_exif import StrippedFile, strip_image
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    data_dir = Path(args.data_dir)
+    source_dir = Path(args.source_dir)
 
     started = time.time()
-    print(f"[prepare] data_dir={data_dir}")
+    print(f"[prepare] source_dir={source_dir}")
 
-    image_paths = list(_iter_source_images(data_dir))
+    image_paths = list(_iter_source_images(source_dir))
     print(f"[prepare] найдено изображений: {len(image_paths)}")
 
     records, conflicts, no_gt = _build_ground_truth(image_paths)
@@ -78,7 +78,8 @@ def main(argv: list[str] | None = None) -> int:
 
 def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Подготовка датасета для TRACE")
-    parser.add_argument("--data-dir", default=str(DATA_DIR))
+    parser.add_argument("--source-dir", default=str(SOURCE_DIR),
+                        help="Каталог с папками 'Фото YYYY г' (default: data/source)")
     parser.add_argument("--dst-stripped", default=str(STRIPPED_DIR))
     parser.add_argument("--dst-originals", default=str(ORIGINALS_DIR))
     parser.add_argument("--gt-path", default=str(GROUND_TRUTH_PATH))
@@ -89,8 +90,13 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _iter_source_images(data_dir: Path):
-    for folder in sorted(data_dir.iterdir()):
+def _iter_source_images(source_dir: Path):
+    if not source_dir.exists():
+        raise FileNotFoundError(
+            f"Каталог исходников не найден: {source_dir}. "
+            "Создайте data/source/ и положите туда папки 'Фото YYYY г'."
+        )
+    for folder in sorted(source_dir.iterdir()):
         if not folder.is_dir() or not folder.name.startswith("Фото"):
             continue
         for path in sorted(folder.iterdir()):

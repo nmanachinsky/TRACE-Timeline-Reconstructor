@@ -1,9 +1,17 @@
-"""Общие утилиты для train/predict/evaluate: загрузка кэшей, выравнивание признаков."""
+"""Общие утилиты для train/predict/evaluate: загрузка кэшей, выравнивание признаков.
+
+`FeatureBundle` поддерживает два режима:
+- core (M1): resnet + color + lighting — обязательные кэши
+- full (M2): core + faces + ocr — дополнительно, опционально через `include_faces=True`
+
+Layout полного вектора стабилен: [resnet | color | lighting | faces | ocr].
+ResNet всегда первым — это инвариант для `FeatureLayout.slice_resnet`.
+"""
 
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -11,44 +19,75 @@ import numpy as np
 
 @dataclass(frozen=True)
 class FeatureBundle:
-    """Загруженные кэши признаков, согласованные по stripped_id."""
+    """Загруженные кэши признаков, согласованные по stripped_id.
+
+    `faces` и `ocr` опциональны (None → не используются в `full_matrix`).
+    """
 
     ids: tuple[str, ...]
-    resnet: np.ndarray  # (N, resnet_dim)
-    color: np.ndarray   # (N, color_dim)
-    lighting: np.ndarray  # (N, lighting_dim)
+    resnet: np.ndarray
+    color: np.ndarray
+    lighting: np.ndarray
+    faces: np.ndarray | None = None
+    ocr: np.ndarray | None = None
 
     @property
     def full_matrix(self) -> np.ndarray:
-        """ResNet → color → lighting в одном векторе. Layout стабилен."""
-        return np.hstack([self.resnet, self.color, self.lighting]).astype(np.float32)
+        """Конкатенация в стабильном порядке. M2-признаки добавляются в хвост."""
+        parts: list[np.ndarray] = [self.resnet, self.color, self.lighting]
+        if self.faces is not None:
+            parts.append(self.faces)
+        if self.ocr is not None:
+            parts.append(self.ocr)
+        return np.hstack(parts).astype(np.float32)
 
     @property
     def resnet_dim(self) -> int:
         return self.resnet.shape[1]
 
+    @property
+    def has_m2_features(self) -> bool:
+        return self.faces is not None or self.ocr is not None
 
-def load_feature_bundle(features_dir: Path) -> FeatureBundle:
-    """Загружает resnet/color/lighting npz и приводит к общему порядку id."""
+
+def load_feature_bundle(
+    features_dir: Path,
+    *,
+    include_faces: bool = False,
+    include_ocr: bool = False,
+) -> FeatureBundle:
+    """Загружает обязательные core-кэши и опционально M2-кэши.
+
+    Все массивы выравниваются по пересечению id → так гарантируется, что строки в
+    `full_matrix` и в `ids` соответствуют одному и тому же фото.
+    """
     resnet_data = _load_cache(features_dir / "resnet.npz")
     color_data = _load_cache(features_dir / "color.npz")
     lighting_data = _load_cache(features_dir / "lighting.npz")
 
-    common_ids = sorted(
-        set(resnet_data[0]) & set(color_data[0]) & set(lighting_data[0])
-    )
+    id_sets: list[set[str]] = [set(resnet_data[0]), set(color_data[0]), set(lighting_data[0])]
+
+    faces_data: tuple[list[str], np.ndarray] | None = None
+    if include_faces:
+        faces_data = _load_cache(features_dir / "faces.npz")
+        id_sets.append(set(faces_data[0]))
+
+    ocr_data: tuple[list[str], np.ndarray] | None = None
+    if include_ocr:
+        ocr_data = _load_cache(features_dir / "ocr.npz")
+        id_sets.append(set(ocr_data[0]))
+
+    common_ids = sorted(set.intersection(*id_sets))
     if not common_ids:
         raise ValueError("Кэши признаков не пересекаются по stripped_id")
 
-    resnet_aligned = _align(resnet_data, common_ids)
-    color_aligned = _align(color_data, common_ids)
-    lighting_aligned = _align(lighting_data, common_ids)
-
     return FeatureBundle(
         ids=tuple(common_ids),
-        resnet=resnet_aligned,
-        color=color_aligned,
-        lighting=lighting_aligned,
+        resnet=_align(resnet_data, common_ids),
+        color=_align(color_data, common_ids),
+        lighting=_align(lighting_data, common_ids),
+        faces=_align(faces_data, common_ids) if faces_data is not None else None,
+        ocr=_align(ocr_data, common_ids) if ocr_data is not None else None,
     )
 
 

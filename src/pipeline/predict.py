@@ -40,11 +40,17 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     started = time.time()
 
-    bundle = load_feature_bundle(Path(args.features_dir))
+    use_full = args.features == "full"
+    bundle = load_feature_bundle(
+        Path(args.features_dir),
+        include_faces=use_full,
+        include_ocr=use_full,
+    )
     gt = load_ground_truth(Path(args.ground_truth))
     train_ids, test_ids = load_split(Path(args.splits_dir))
 
     classifier = load_classifier(Path(args.models) / "classifier.joblib")
+    print(f"[predict] features={args.features}, M2-признаки={bundle.has_m2_features}")
     print(f"[predict] классов в модели: {len(classifier.classes_)}")
 
     test_set = set(test_ids)
@@ -122,6 +128,7 @@ def _parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--splits-dir", default=str(SPLITS_DIR))
     parser.add_argument("--models", default=str(MODELS_DIR / "m1"))
     parser.add_argument("--out", default=str(DATA_DIR / "predictions_m1.json"))
+    parser.add_argument("--features", choices=("core", "full"), default="core")
     parser.add_argument("--consensus", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--consensus-weight", type=float, default=0.4)
     return parser.parse_args(argv)

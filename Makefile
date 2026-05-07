@@ -34,7 +34,7 @@ predict-m1:
 	$(RUN) python -m src.pipeline.predict --models=models/m1/ --out=data/predictions_m1.json
 
 predict-m2:
-	$(RUN) python -m src.pipeline.predict --models=models/m2/ --out=data/predictions_m2.json
+	$(RUN) python -m src.pipeline.predict --features=full --models=models/m2/ --out=data/predictions_m2.json
 
 eval-m1:
 	$(RUN) python -m src.pipeline.evaluate --predictions=data/predictions_m1.json --out=reports/metrics_m1.json
@@ -50,3 +50,4 @@ clean:
 	rm -f data/ground_truth.json data/predictions*.json
 	rm -rf models reports .pytest_cache .coverage htmlcov
 	find . -type d -name __pycache__ -exec rm -rf {} +
+	@echo "Папка data/source/ с исходниками НЕ удалена — это входные данные"

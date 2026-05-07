@@ -24,9 +24,13 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# M2 — faces + OCR. Конкретный face-стек выбираем в M2 (insightface либо OpenCV DNN),
-# facenet-pytorch удалён из-за пина torchvision<0.18.
+# M2 — faces + OCR.
+# Faces: insightface (ONNX-based, RetinaFace + ArcFace) — выбран вместо facenet-pytorch
+#        из-за пина torchvision<0.18 у последнего. Требует Visual C++ Build Tools на Windows.
+# OCR: EasyOCR с моделями для en+ru.
 m2 = [
+    "insightface>=0.7.3",
+    "onnxruntime>=1.18",
     "easyocr>=1.7",
 ]
 
@@ -78,7 +82,9 @@ markers = [
 [tool.coverage.run]
 branch = true
 source = ["src"]
-omit = ["src/app/*", "src/**/__main__.py"]
+# extractor.py — CLI-оркестратор, грузит ResNet/insightface/EasyOCR; тестируется
+# end-to-end прогоном пайплайна, а не unit-тестами.
+omit = ["src/app/*", "src/**/__main__.py", "src/features/extractor.py"]
 
 [tool.coverage.report]
 exclude_lines = [

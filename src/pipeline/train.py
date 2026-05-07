@@ -31,10 +31,16 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     started = time.time()
 
-    bundle = load_feature_bundle(Path(args.features_dir))
+    use_full = args.features == "full"
+    bundle = load_feature_bundle(
+        Path(args.features_dir),
+        include_faces=use_full,
+        include_ocr=use_full,
+    )
     gt = load_ground_truth(Path(args.ground_truth))
     train_ids, _ = load_split(Path(args.splits_dir))
 
+    print(f"[train] features={args.features}, M2-признаки={bundle.has_m2_features}")
     print(f"[train] всего фото в кэшах: {len(bundle.ids)}")
     print(f"[train] train ids: {len(train_ids)}")
 

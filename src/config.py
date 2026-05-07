@@ -12,6 +12,7 @@ from pathlib import Path
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
 
 DATA_DIR: Path = PROJECT_ROOT / "data"
+SOURCE_DIR: Path = DATA_DIR / "source"  # исходные папки "Фото YYYY г" с EXIF/JSON-сайдкарами
 ORIGINALS_DIR: Path = DATA_DIR / "originals"
 STRIPPED_DIR: Path = DATA_DIR / "stripped"
 FEATURES_DIR: Path = DATA_DIR / "features"

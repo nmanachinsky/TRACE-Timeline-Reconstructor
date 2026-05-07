@@ -499,7 +499,16 @@ def _render_path_input(
     placeholder: str,
     help_text: str,
 ) -> None:
-    """Поле ввода пути + кнопка «Обзор» с системным диалогом выбора папки."""
+    """Поле ввода пути + кнопка «Обзор» с системным диалогом выбора папки.
+
+    Streamlit запрещает писать в `session_state[key]` после инстанцирования
+    виджета с тем же `key`. Поэтому результат пикера буферим в `_pending`-ключе
+    и переносим в основной ключ на следующем rerun ДО создания text_input.
+    """
+    pending_key = f"{state_key}_pending"
+    if pending_key in st.session_state:
+        st.session_state[state_key] = st.session_state.pop(pending_key)
+
     col_input, col_button = st.columns([6, 1])
     with col_input:
         st.text_input(
@@ -524,7 +533,7 @@ def _render_path_input(
         ):
             chosen = pick_directory(picker_title)
             if chosen is not None:
-                st.session_state[state_key] = str(chosen)
+                st.session_state[pending_key] = str(chosen)
                 st.rerun()
 
 
